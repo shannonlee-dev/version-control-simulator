@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LCS Diff 알고리즘 시각화</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background-color: #f8f9fa; }
+        .container { width: max-content; min-width: 1180px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #333; }
+        .info { background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-weight: bold; }
+        .table-wrap { margin: 20px 0; }
+        table { width: max-content; border-collapse: collapse; table-layout: auto; font-size: 15px; }
+        th, td { border: 1px solid #ccc; min-width: 64px; height: 44px; text-align: center; vertical-align: middle; }
+        th { background-color: #f1f3f5; }
+        th.line-label { min-width: 120px; max-width: 170px; padding: 6px; font-size: 12px; overflow-wrap: anywhere; }
+        .active { background-color: #ffe066 !important; font-weight: bold; border: 2px solid #f59f00; }
+        .target { background-color: #a5d8ff !important; }
+        .path { background-color: #c3fae8 !important; }
+        .examples { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+        .example-box { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; }
+        .example-box h3 { margin: 0 0 8px; font-size: 16px; }
+        .example-box ol { margin: 0; padding-left: 24px; font-family: monospace; line-height: 1.6; }
+        .controls { display: flex; justify-content: center; gap: 10px; margin: 20px 0; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; background: #339af0; color: white; }
+        button:disabled { background: #ced4da; cursor: not-allowed; }
+        button:hover:not(:disabled) { background: #228be6; }
+        #description { min-height: 80px; padding: 15px; border-left: 4px solid #339af0; background: #e7f5ff; font-size: 16px; margin-bottom: 20px; line-height: 1.5; overflow-wrap: anywhere; }
+        #description code { font-family: monospace; white-space: pre-wrap; }
+        .diff-result { font-family: monospace; background: #212529; color: #f8f9fa; padding: 15px; border-radius: 5px; white-space: pre-wrap; overflow-x: auto; font-size: 16px;}
+        .diff-added { color: #51cf66; }
+        .diff-removed { color: #ff6b6b; }
+        @media (max-width: 760px) {
+            body { padding: 10px; }
+            .container { padding: 14px; }
+            .examples { grid-template-columns: 1fr; }
+            .controls { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>LCS Diff 단계별 시각화</h2>
+    <div class="info">
+        비교 대상: 왼쪽 파일(old.py)과 오른쪽 파일(new.py)을 줄 단위로 비교합니다.
+    </div>
+
+    <div class="examples">
+        <div class="example-box">
+            <h3>Left: old.py</h3>
+            <ol id="leftLines"></ol>
+        </div>
+        <div class="example-box">
+            <h3>Right: new.py</h3>
+            <ol id="rightLines"></ol>
+        </div>
+    </div>
+
+    <div id="description">시작하기 버튼을 눌러주세요.</div>
+
+    <div class="controls">
+        <button id="prevBtn" onclick="prevStep()" disabled>◀ 이전 단계</button>
+        <button id="nextBtn" onclick="nextStep()">다음 단계 ▶</button>
+    </div>
+
+    <div class="table-wrap">
+        <table id="dpTable"></table>
+    </div>
+
+    <h3>현재 Diff 결과:</h3>
+    <div id="diffOutput" class="diff-result"></div>
+</div>
+
+<script>
+    const left = [
+        "def total(items):",
+        "    result = 0",
+        "    for item in items:",
+        "        result += item",
+        "    return result",
+        "",
+        "print(total([1, 2, 3]))"
+    ];
+    const right = [
+        "def total(items):",
+        "    result = 10",
+        "    for item in items:",
+        "        if item > 0:",
+        "            result += item",
+        "    return result",
+        "",
+        "print('sum:', total([1, 2, 3]))"
+    ];
+    const rows = left.length + 1;
+    const cols = right.length + 1;
+    
+    // 단계별 상태를 저장할 배열
+    let steps = [];
+    
+    // 1. 초기 테이블 생성 (0으로 채우기)
+    let table = Array.from({length: rows}, () => Array(cols).fill(0));
+    steps.push({
+        table: JSON.parse(JSON.stringify(table)),
+        active: null, targets: [],
+        desc: "<b>1단계 (준비):</b> 테이블을 0으로 초기화합니다. 맨 마지막 행과 열은 '비어있는 suffix'를 위한 공간입니다.",
+        diff: []
+    });
+
+    // 2. 뒤에서부터 채우기
+    for (let i = left.length - 1; i >= 0; i--) {
+        for (let j = right.length - 1; j >= 0; j--) {
+            let desc = `<b>계산 [${i}][${j}]:</b> old.py ${i + 1}번째 줄과 new.py ${j + 1}번째 줄을 비교합니다.<br>
+                <code>${escapeHtml(left[i])}</code><br>
+                <code>${escapeHtml(right[j])}</code><br>`;
+            let targets = [];
+            
+            if (left[i] === right[j]) {
+                table[i][j] = 1 + table[i+1][j+1];
+                desc += `같으므로 대각선 아래 값(${table[i+1][j+1]}) + 1 = <b>${table[i][j]}</b>을 저장합니다.`;
+                targets.push([i+1, j+1]);
+            } else {
+                if (table[i+1][j] >= table[i][j+1]) {
+                    table[i][j] = table[i+1][j];
+                    desc += `다르므로 아래(${table[i+1][j]})와 오른쪽(${table[i][j+1]}) 중 큰 값인 아래쪽 값을 가져옵니다.`;
+                    targets.push([i+1, j], [i, j+1]);
+                } else {
+                    table[i][j] = table[i][j+1];
+                    desc += `다르므로 아래(${table[i+1][j]})와 오른쪽(${table[i][j+1]}) 중 큰 값인 오른쪽 값을 가져옵니다.`;
+                    targets.push([i+1, j], [i, j+1]);
+                }
+            }
+            steps.push({
+                table: JSON.parse(JSON.stringify(table)),
+                active: [i, j], targets: targets,
+                desc: desc, diff: []
+            });
+        }
+    }
+
+    // 3. 앞에서부터 따라가며 Diff 만들기
+    let i = 0, j = 0;
+    let diffLines = [];
+    let path = [];
+    
+    steps.push({
+        table: JSON.parse(JSON.stringify(table)), active: null, targets: [], path: [...path],
+        desc: "<b>3단계 (추적 시작):</b> 이제 표의 맨 앞 [0][0]부터 시작하여 길을 따라가며 Diff를 만듭니다.",
+        diff: [...diffLines]
+    });
+
+    while (i < left.length && j < right.length) {
+        path.push([i, j]);
+        let desc = `<b>추적 [${i}][${j}]:</b> old.py ${i + 1}번째 줄과 new.py ${j + 1}번째 줄을 봅니다.<br>
+            <code>${escapeHtml(left[i])}</code><br>
+            <code>${escapeHtml(right[j])}</code><br>`;
+        let targets = [];
+        
+        if (left[i] === right[j]) {
+            desc += `두 줄이 완전히 같으므로 유지합니다. 대각선 아래로 이동합니다.`;
+            diffLines.push(`  ${escapeHtml(left[i])}`);
+            targets.push([i+1, j+1]);
+            i++; j++;
+        } else if (table[i+1][j] >= table[i][j+1]) {
+            desc += `아래쪽(${table[i+1][j]})이 오른쪽(${table[i][j+1]})보다 크거나 같으므로 old.py의 이 줄은 삭제(-)로 봅니다. 아래로 이동합니다.`;
+            diffLines.push(`<span class="diff-removed">- ${escapeHtml(left[i])}</span>`);
+            targets.push([i+1, j]);
+            i++;
+        } else {
+            desc += `오른쪽(${table[i][j+1]})이 더 크므로 new.py의 이 줄은 추가(+)로 봅니다. 오른쪽으로 이동합니다.`;
+            diffLines.push(`<span class="diff-added">+ ${escapeHtml(right[j])}</span>`);
+            targets.push([i, j+1]);
+            j++;
+        }
+        steps.push({
+            table: JSON.parse(JSON.stringify(table)), active: [path[path.length-1][0], path[path.length-1][1]], targets: targets, path: [...path],
+            desc: desc, diff: [...diffLines]
+        });
+    }
+
+    while (i < left.length) {
+        path.push([i, j]);
+        diffLines.push(`<span class="diff-removed">- ${escapeHtml(left[i])}</span>`);
+        steps.push({ table: JSON.parse(JSON.stringify(table)), active: [i, j], targets: [], path: [...path], desc: `남은 old.py 줄 <code>${escapeHtml(left[i])}</code>을 삭제(-) 처리합니다.`, diff: [...diffLines] });
+        i++;
+    }
+    while (j < right.length) {
+        path.push([i, j]);
+        diffLines.push(`<span class="diff-added">+ ${escapeHtml(right[j])}</span>`);
+        steps.push({ table: JSON.parse(JSON.stringify(table)), active: [i, j], targets: [], path: [...path], desc: `남은 new.py 줄 <code>${escapeHtml(right[j])}</code>을 추가(+) 처리합니다.`, diff: [...diffLines] });
+        j++;
+    }
+
+    steps.push({
+        table: JSON.parse(JSON.stringify(table)), active: null, targets: [], path: [...path],
+        desc: "<b>완료!</b> 모든 비교가 끝났습니다. 최종 Diff를 확인하세요.",
+        diff: [...diffLines]
+    });
+
+    // 화면 렌더링 로직
+    let currentStep = 0;
+
+    function renderStep() {
+        const step = steps[currentStep];
+        document.getElementById('description').innerHTML = step.desc;
+        document.getElementById('diffOutput').innerHTML = step.diff.length > 0 ? "Diff:\n" + step.diff.join("\n") : "Diff:";
+        
+        let html = '<tr><th></th>';
+        for(let j=0; j<right.length; j++) html += `<th class="line-label">${j + 1}. ${escapeHtml(right[j])}</th>`;
+        html += '<th class="line-label">(끝)</th></tr>';
+
+        for (let r = 0; r < rows; r++) {
+            html += `<tr><th class="line-label">${r < left.length ? `${r + 1}. ${escapeHtml(left[r])}` : '(끝)'}</th>`;
+            for (let c = 0; c < cols; c++) {
+                let classes = [];
+                if (step.active && step.active[0] === r && step.active[1] === c) classes.push('active');
+                if (step.targets && step.targets.some(t => t[0] === r && t[1] === c)) classes.push('target');
+                if (step.path && step.path.some(p => p[0] === r && p[1] === c)) classes.push('path');
+                
+                html += `<td class="${classes.join(' ')}">${step.table[r][c]}</td>`;
+            }
+            html += '</tr>';
+        }
+        document.getElementById('dpTable').innerHTML = html;
+
+        document.getElementById('prevBtn').disabled = currentStep === 0;
+        document.getElementById('nextBtn').disabled = currentStep === steps.length - 1;
+    }
+
+    function nextStep() { if (currentStep < steps.length - 1) { currentStep++; renderStep(); } }
+    function prevStep() { if (currentStep > 0) { currentStep--; renderStep(); } }
+
+    function escapeHtml(value) {
+        return value
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    function renderExamples() {
+        document.getElementById('leftLines').innerHTML = left.map(line => `<li>${escapeHtml(line) || '&nbsp;'}</li>`).join('');
+        document.getElementById('rightLines').innerHTML = right.map(line => `<li>${escapeHtml(line) || '&nbsp;'}</li>`).join('');
+    }
+
+    renderExamples();
+    renderStep(); // 초기 렌더링
+</script>
+
+</body>
+</html>
