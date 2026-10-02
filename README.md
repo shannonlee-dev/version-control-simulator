@@ -81,7 +81,7 @@ make build
 
 별도 REPL 프로세스에서 초기화·커밋·브랜치·검색·경로·병합·diff를 확인합니다.
 
-`make check`는 정적 분석·포맷·문서 검사를, `make test`는 `uv run --frozen pytest -q`로 전체 동작 검사를 실행합니다. `make smoke`는 같은 테스트 중 `smoke` 마커가 붙은 실행 확인만 선택합니다(`uv run --frozen pytest -q -m smoke`). 테스트는 `test_*.py`와 fixture로 구성하며 임시 DB·파일과 모의 요청을 사용합니다.
+`make check`는 정적 분석·포맷·문서 검사를, `make test`는 `uv run --frozen pytest -q`로 등록된 회귀 테스트를 실행합니다. 그래프·초기화 색인 리셋, 정렬 옵션과 안정성, 작성자 검색, benchmark 출력, 잘못된 명령·빈 브랜치 병합 시 이력 보존을 검증합니다. `make smoke`는 `smoke` 마커가 붙은 실제 REPL 프로세스의 명령 흐름·diff 변경 줄·없는 파일 오류 후 계속 실행을 선택합니다(`uv run --frozen pytest -q -m smoke`). 실제 Git 저장소나 외부 서비스는 사용하지 않으며 benchmark 시간의 우열을 보장하는 테스트도 아닙니다.
 
 ## 상세 문서
 
