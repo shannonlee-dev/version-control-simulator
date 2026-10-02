@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Callable, TypeVar
 
-
 T = TypeVar("T")
 
 
@@ -44,7 +43,10 @@ def merge_sort_custom(items: list[T], key_func: Callable[[T], object]) -> list[T
     left_index = 0
     right_index = 0
     while left_index < len(left) and right_index < len(right):
-        if compare_values(key_func(left[left_index]), key_func(right[right_index])) <= 0:
+        if (
+            compare_values(key_func(left[left_index]), key_func(right[right_index]))
+            <= 0
+        ):
             merged.append(left[left_index])
             left_index += 1
         else:

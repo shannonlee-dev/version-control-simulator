@@ -1,104 +1,88 @@
-# Version Control Simulator
+# 버전 관리 시뮬레이터
 
-A Python REPL that models a small in-memory version-control system. It supports repository initialization, commits, branches, graph traversal, commit search, custom sorting, and optional diff/merge behavior.
+## 프로젝트 소개
 
-The project treats commit history as structured data. That makes it useful for practicing graph reasoning, deterministic ordering, searchable metadata, and clear command behavior without relying on external packages.
+메모리 안에서 커밋·브랜치·이력 탐색을 구현한 Python REPL입니다. 커밋 그래프, 역색인 검색, 직접 구현한 정렬 알고리즘을 통해 버전 관리의 데이터 모델을 학습합니다.
 
-## Features
+## 핵심 특징
 
-- Initialize an in-memory repository
-- Create commits and branches
-- Switch branches
-- Print logs in parent-before-child order
-- Sort logs by date or author using custom sorting functions
-- Search by keyword or author through inverted indexes
-- Find paths and ancestors in the commit graph
-- Render simple file diffs
-- Create merge commits
-- Benchmark insertion sort and merge sort
+- 저장소 초기화, 커밋 생성, 브랜치 생성·전환
+- 부모가 자식보다 먼저 나오는 이력 출력
+- 날짜·작성자 기준 정렬과 키워드·작성자 검색
+- 커밋 간 경로와 조상 탐색
+- 파일 diff, 병합 커밋, 정렬 성능 비교
 
-## Requirements
+## 아키텍처
 
-- Python 3.10 or newer
-- No external packages
+`REPL → 명령 실행기 → MiniGit → 커밋 그래프·역색인·정렬` 흐름입니다. 브랜치는 커밋 ID를 가리키며 새 커밋은 기존 부모만 참조합니다.
 
-## Run
+| 경로 | 역할 |
+| --- | --- |
+| `src/minigit/__main__.py` | 실행 진입점 |
+| `src/minigit/cli.py` | 명령 파싱과 REPL |
+| `src/minigit/repository.py`, `models.py` | 저장소 상태와 커밋 모델 |
+| `src/minigit/sorting.py`, `text_index.py`, `diff_utils.py` | 정렬·검색·diff |
+| `examples/diff/` | 파일 비교용 원본 샘플 |
+| `docs/design.md` | 커밋 모델·탐색·검색·정렬의 설계 결정 |
+
+```mermaid
+flowchart LR
+    Input["사용자 입력"] --> CLI["명령 파싱·REPL"]
+    CLI --> Repo["MiniGit 저장소 상태"]
+    Repo --> Models["커밋·브랜치 모델"]
+    Repo --> Graph["경로·조상 탐색"]
+    Repo --> Index["텍스트 역색인"]
+    Repo --> Sort["로그 정렬"]
+    CLI --> Diff["파일 diff"]
+    Diff --> Examples["비교 파일"]
+```
+
+소스는 `src/minigit/`, 회귀 테스트는 `tests/`, 개발 보조 도구는 `scripts/`에 둡니다. `pyproject.toml`이 패키지·명령·개발 도구를 선언하고 `uv.lock`이 설치 버전을 고정합니다. `uv sync --frozen`은 소스를 개발 모드로 설치하므로 앱 실행과 테스트에 별도 `PYTHONPATH` 설정이 필요하지 않습니다.
+
+## 실행 환경과 시작하기
+
+Python 3.10 이상과 uv가 필요합니다. 앱 런타임은 표준 라이브러리만 사용합니다. 저장소 루트에서 실행합니다.
 
 ```bash
-python3 main.py
+uv sync --frozen
+uv run --frozen mini-git
 ```
 
-Prompt:
+REPL에서 다음 명령을 입력합니다.
 
 ```text
-mini-git>
-```
-
-## Commands
-
-```text
-INIT <user_name>
-BRANCH <branch_name>
-SWITCH <branch_name>
-COMMIT <message>
-LOG
-LOG --sort-by=date
-LOG --sort-by=author
-PATH <commit1> <commit2>
-ANCESTORS <commit_hash>
-SEARCH <keyword>
-SEARCH --author=<name>
-diff <file1> <file2>
-merge <branch_name>
-bench-sort [size]
-exit
+init "사용자"
+commit "첫 기록"
+branch feature
+switch feature
+commit "검색 기능"
+log
+search 검색
+switch main
+merge feature
+diff examples/diff/a.txt examples/diff/b.txt
 quit
 ```
 
-## Example
+## 명령과 동작 범위
 
-```text
-mini-git> init "Alice"
-Initialized repository.
-Current branch: main
-Current user: Alice
-mini-git> commit "Initial commit"
-[main c000001] Initial commit
-mini-git> branch feature
-Created branch: feature
-mini-git> switch feature
-Switched to branch: feature
-mini-git> commit "Add login feature"
-[feature c000002] Add login feature
-mini-git> switch main
-Switched to branch: main
-mini-git> commit "Add payment feature"
-[main c000003] Add payment feature
-mini-git> path c000002 c000003
-Path: c000002 -> c000001 -> c000003
-mini-git> search login
-Found 1 commit:
-- c000002: Add login feature (Alice, 2026-05-16 09:30:00)
+`log --sort-by=date`, `log --sort-by=author`, `search --author=이름`, `path <ID1> <ID2>`, `ancestors <ID>`, `bench-sort [크기]`를 지원합니다. 명령 이름은 대소문자를 구분하지 않습니다.
+
+커밋 ID는 세션 안에서 순서대로 생성합니다. 실제 Git 저장소나 작업 트리를 관리하지 않으며 종료하면 이력은 사라집니다. `path`는 부모 연결을 양방향으로 탐색합니다. 병합은 이력 그래프 실습이며 실제 Git의 파일 병합·충돌 처리와 동일하지 않습니다.
+
+## 검증
+
+```bash
+make check
+make test
+make smoke
+make build
 ```
 
-## Project Structure
+별도 REPL 프로세스에서 초기화·커밋·브랜치·검색·경로·병합·diff를 확인합니다.
 
-```text
-main.py
-minigit/
-  cli.py          command parsing and REPL loop
-  repository.py   repository state, branches, graph traversal, search
-  models.py       commit model
-  sorting.py      insertion sort and merge sort helpers
-  text_index.py   token normalization
-  diff_utils.py   simple line diff renderer
-```
+`make check`는 정적 분석·포맷·문서 검사를, `make test`는 `uv run --frozen pytest -q`로 전체 동작 검사를 실행합니다. `make smoke`는 같은 테스트 중 `smoke` 마커가 붙은 실행 확인만 선택합니다(`uv run --frozen pytest -q -m smoke`). 테스트는 `test_*.py`와 fixture로 구성하며 임시 DB·파일과 모의 요청을 사용합니다.
 
-## Design Notes
+## 상세 문서
 
-- Commits are stored in a hash map keyed by deterministic session-local IDs.
-- Branches map names to commit hashes; the active branch behaves as HEAD.
-- The commit graph is a DAG because each new commit points only to existing parents.
-- Search uses inverted indexes for keyword and author lookups.
-- `PATH` treats commit-parent links as an undirected graph and uses breadth-first search.
-- Sorting behavior is implemented directly instead of delegating to Python's built-in sort.
+[모델 설계](docs/design.md)에서 그래프 방향, 검색 비용, 정렬 기준과 구현 경계를 설명합니다.

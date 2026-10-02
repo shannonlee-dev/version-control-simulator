@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import os
 import time
+from datetime import datetime
 
+from . import graph
 from .diff_utils import render_line_diff
 from .models import Commit
 from .sorting import insertion_sort, merge_sort_custom
@@ -85,7 +86,7 @@ class MiniGit:
         message: str,
         parents: list[str] | None = None,
         prefix: str | None = None,
-    ) -> list[str]: #parents, prefix는 merge 명령에서 사용하기 위한 선택적 인자입니다.
+    ) -> list[str]:  # parents, prefix는 merge 명령에서 사용하기 위한 선택적 인자입니다.
         """커밋을 생성하고 브랜치 포인터와 역색인을 갱신한다."""
         error = self.ensure_initialized()
         if error:
@@ -111,7 +112,9 @@ class MiniGit:
         self.branch_heads_by_name[self.current_branch] = commit_hash
         self.index_commit(commit)
         self.refresh_branch_labels()
-        shown_prefix = prefix if prefix is not None else self.current_branch #prefix는 merge 명령에서 커밋 메시지 앞에 붙는 텍스트입니다. 
+        shown_prefix = (
+            prefix if prefix is not None else self.current_branch
+        )  # prefix는 merge 명령에서 커밋 메시지 앞에 붙는 텍스트입니다.
         return [f"[{shown_prefix} {commit_hash}] {message}"]
 
     def index_commit(self, commit: Commit) -> None:
@@ -144,9 +147,13 @@ class MiniGit:
             return [error]
         commits = self.get_ordered_commits()
         if sort_by == "date":
-            commits = insertion_sort(commits, lambda commit: (commit.timestamp, commit.hash))
+            commits = insertion_sort(
+                commits, lambda commit: (commit.timestamp, commit.hash)
+            )
         elif sort_by == "author":
-            commits = insertion_sort(commits, lambda commit: (normalize_token(commit.author), commit.hash))
+            commits = insertion_sort(
+                commits, lambda commit: (normalize_token(commit.author), commit.hash)
+            )
         elif sort_by is not None:
             return ["Invalid args"]
         if not commits:
@@ -155,7 +162,9 @@ class MiniGit:
         for commit in commits:
             branch_text = f" [{', '.join(commit.branches)}]" if commit.branches else ""
             parent_text = ",".join(commit.parents) if commit.parents else "-"
-            lines.append(f"commit {commit.hash} ({commit.author}, {commit.timestamp}){branch_text}")
+            lines.append(
+                f"commit {commit.hash} ({commit.author}, {commit.timestamp}){branch_text}"
+            )
             lines.append(f"parents: {parent_text}")
             lines.append(commit.message)
         return lines
@@ -188,79 +197,25 @@ class MiniGit:
         lines = [f"Found {len(ordered)} commit{'s' if len(ordered) != 1 else ''}:"]
         for commit_hash in ordered:
             commit = self.commits_by_hash[commit_hash]
-            lines.append(f"- {commit.hash}: {commit.message} ({commit.author}, {commit.timestamp})")
+            lines.append(
+                f"- {commit.hash}: {commit.message} ({commit.author}, {commit.timestamp})"
+            )
         return lines
 
     def path_between(self, start: str, target: str) -> list[str]:
-        """사전식 경로 순서로 동률을 깨며 가장 짧은 무방향 커밋 경로를 찾는다."""
         error = self.ensure_initialized()
         if error:
             return [error]
-        if start not in self.commits_by_hash:
-            return [f"Unknown commit: {start}"]
-        if target not in self.commits_by_hash:
-            return [f"Unknown commit: {target}"]
-        if start == target:
-            return [f"Path: {start}"]
-        level = [[start]]
-        seen_depth = {start: 0}
-        depth = 0
-        while level:
-            target_paths = []
-            next_level = []
-            for path in level:
-                current = path[-1]
-                for neighbor in self.neighbors(current):
-                    if neighbor in path:
-                        continue
-                    candidate = path + [neighbor]
-                    if neighbor == target:
-                        target_paths.append(candidate)
-                    previous_depth = seen_depth.get(neighbor)
-                    if previous_depth is None or previous_depth == depth + 1:
-                        seen_depth[neighbor] = depth + 1
-                        next_level.append(candidate)
-            if target_paths:
-                target_paths = insertion_sort(target_paths, lambda path: "->".join(path))
-                return [f"Path: {' -> '.join(target_paths[0])}"]
-            next_level = insertion_sort(next_level, lambda path: "->".join(path))
-            level = next_level
-            depth += 1
-        return ["No path"]
+        return graph.path_between(self.commits_by_hash, self.children, start, target)
 
     def neighbors(self, commit_hash: str) -> list[str]:
-        """커밋의 무방향 이웃을 사전식 순서로 반환한다."""
-        linked = set(self.commits_by_hash[commit_hash].parents)
-        linked.update(self.children.get(commit_hash, set()))
-        return insertion_sort(list(linked), lambda value: value)
+        return graph.neighbors(self.commits_by_hash, self.children, commit_hash)
 
     def ancestors(self, commit_hash: str) -> list[str]:
-        """부모 링크를 통해 도달할 수 있는 모든 조상을 반환한다."""
         error = self.ensure_initialized()
         if error:
             return [error]
-        if commit_hash not in self.commits_by_hash:
-            return [f"Unknown commit: {commit_hash}"]
-        visited = set()
-        output = []
-        stack = list(self.commits_by_hash[commit_hash].parents)
-        while stack:
-            current = stack.pop()
-            if current in visited:
-                continue
-            visited.add(current)
-            output.append(current)
-            for parent in self.commits_by_hash[current].parents:
-                if parent not in visited:
-                    stack.append(parent)
-        output = insertion_sort(output, lambda value: value)
-        if not output:
-            return ["No ancestors"]
-        lines = [f"Ancestors of {commit_hash}:"]
-        for ancestor in output:
-            commit = self.commits_by_hash[ancestor]
-            lines.append(f"- {commit.hash}: {commit.message}")
-        return lines
+        return graph.ancestors(self.commits_by_hash, commit_hash)
 
     def merge(self, branch_name: str) -> list[str]:
         """현재 HEAD와 대상 브랜치 HEAD를 부모로 갖는 병합 커밋을 생성한다."""
@@ -277,7 +232,9 @@ class MiniGit:
             return [f"Already up to date with {branch_name}"]
         parents = [current_head, target_head]
         message = f"Merge branch {branch_name} into {self.current_branch}"
-        return self.commit(message, parents=parents, prefix=f"merge {self.current_branch}")
+        return self.commit(
+            message, parents=parents, prefix=f"merge {self.current_branch}"
+        )
 
     def diff_files(self, file1: str, file2: str) -> list[str]:
         """두 텍스트 파일을 줄 단위로 비교하고 공통, 삭제, 추가 줄을 표시한다."""
